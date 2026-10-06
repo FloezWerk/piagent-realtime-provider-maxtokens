@@ -1,6 +1,6 @@
 {
   "name": "@floez-werk/piagent-realtime-provider-maxtokens",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Pi extension: clamps max_completion_tokens for OpenRouter requests to the smallest provider endpoint limit, so OpenRouter's length filter stops excluding providers.",
   "keywords": [
     "pi-package",

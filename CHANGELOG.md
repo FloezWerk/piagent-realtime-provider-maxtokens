@@ -7,10 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-07
+
 ### Added
 
 - The status line can show what the provider that served the call supports
-  itself, in parentheses behind the current value: `MT:131k↓(Dig944k)` (`Dig` is
+  itself, in parentheses behind the current value: `MT:131k (Dig 944k)` (`Dig` is
   the provider's first three letters, `944k` its own output limit). Two settings
   control it: `statusProviderLimit` turns the parenthetical off,
   `statusProviderLimitTag` hides the tag and leaves only `(944k)`. The provider is
@@ -80,6 +82,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- [Unreleased] compares against the last tagged version. Versions link to
      their GitHub release page (created by release.yml); 0.1.0 has no tag
      (the first publish was manual), so it links to npm. -->
-[Unreleased]: https://github.com/FloezWerk/piagent-realtime-provider-maxtokens/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/FloezWerk/piagent-realtime-provider-maxtokens/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/FloezWerk/piagent-realtime-provider-maxtokens/releases/tag/v0.1.2
 [0.1.1]: https://github.com/FloezWerk/piagent-realtime-provider-maxtokens/releases/tag/v0.1.1
 [0.1.0]: https://www.npmjs.com/package/@floez-werk/piagent-realtime-provider-maxtokens/v/0.1.0
