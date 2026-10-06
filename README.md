@@ -62,6 +62,7 @@ The value is colour-coded by how much the request was reduced:
 | Nothing reduced, or below `clampWarnPercent` | `color` | `white` |
 | Reduced by `clampWarnPercent` up to `clampAlertPercent` | `colorClamped` | `136` (dark yellow) |
 | Reduced by more than `clampAlertPercent` | `colorClampedHeavy` | `orange` |
+| Reduced by more than `clampCriticalPercent` | `colorClampedCritical` | `red` (bright) |
 
 The deviation is `(value Pi would send - value sent) / value Pi would send`, in
 percent. Colours accept palette names (`white`, `yellow`, `orange`, `red`,
@@ -153,6 +154,8 @@ Settings live under the root key `provider-maxtokens` in Pi's shared
 | `colorClampedHeavy` | `orange` | Colour while the reduction is above `clampAlertPercent` |
 | `clampWarnPercent` | `1` | Reduction in percent from which the warning colour applies |
 | `clampAlertPercent` | `10` | Reduction in percent above which the heavy colour applies |
+| `colorClampedCritical` | `red` | Colour while the reduction is above `clampCriticalPercent` |
+| `clampCriticalPercent` | `50` | Reduction in percent above which the critical colour applies |
 
 The per-model cache is stored in `~/.pi/agent/provider-maxtokens-cache.json`, the
 diagnostic log in `~/.pi/agent/provider-maxtokens.log`. Only the extension's own

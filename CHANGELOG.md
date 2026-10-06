@@ -19,9 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`color`) while nothing is reduced, the warning colour (`colorClamped`, a dark
   yellow by default) from `clampWarnPercent` (default 1) percent of deviation, and
   the heavy colour (`colorClampedHeavy`, orange by default) above
-  `clampAlertPercent` (default 10) percent. The deviation is how much the request
-  value was reduced. Colours accept palette names, `#rgb`/`#rrggbb`, a 256-colour
-  number and `bold:`/`reverse:` prefixes.
+  `clampAlertPercent` (default 10) percent, and the critical colour
+  (`colorClampedCritical`, bright red by default) above `clampCriticalPercent`
+  (default 50) percent. The deviation is how much the request value was reduced.
+  Colours accept palette names, `#rgb`/`#rrggbb`, a 256-colour number and
+  `bold:`/`reverse:` prefixes.
 - A per-model lower bound for the cap (`minByModel`): the limit that is sent never
   drops below it, even when every endpoint publishes less.
 - An opt-in diagnostic log (`log`, off by default) written to

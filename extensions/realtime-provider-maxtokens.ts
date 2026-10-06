@@ -118,10 +118,14 @@ interface ExtensionSettings {
   colorClamped: string;
   /** Colour while a request is reduced by more than `clampAlertPercent`. */
   colorClampedHeavy: string;
+  /** Colour while a request is reduced by more than `clampCriticalPercent`. */
+  colorClampedCritical: string;
   /** Deviation in percent below which a reduction counts as no reduction. */
   clampWarnPercent: number;
   /** Deviation in percent above which the heavy colour is used. */
   clampAlertPercent: number;
+  /** Deviation in percent above which the critical colour is used. */
+  clampCriticalPercent: number;
 }
 
 const DEFAULT_SETTINGS: ExtensionSettings = {
@@ -136,8 +140,10 @@ const DEFAULT_SETTINGS: ExtensionSettings = {
   // 256-colour 136 is a dark yellow; "yellow" (93) would be too close to orange.
   colorClamped: "136",
   colorClampedHeavy: "orange",
+  colorClampedCritical: "red",
   clampWarnPercent: 1,
   clampAlertPercent: 10,
+  clampCriticalPercent: 50,
 };
 
 interface CacheEntry {
@@ -339,6 +345,8 @@ function normalizeSettings(section: unknown): ExtensionSettings {
     colorClampedHeavy: normalizeColorSpec(record.colorClampedHeavy, DEFAULT_SETTINGS.colorClampedHeavy),
     clampWarnPercent: normalizePercent(record.clampWarnPercent, DEFAULT_SETTINGS.clampWarnPercent),
     clampAlertPercent: normalizePercent(record.clampAlertPercent, DEFAULT_SETTINGS.clampAlertPercent),
+    colorClampedCritical: normalizeColorSpec(record.colorClampedCritical, DEFAULT_SETTINGS.colorClampedCritical),
+    clampCriticalPercent: normalizePercent(record.clampCriticalPercent, DEFAULT_SETTINGS.clampCriticalPercent),
   };
 }
 
@@ -668,8 +676,8 @@ function providerSuffix(modelId: string): string {
 }
 
 /**
- * Colour of the status value: neutral while nothing is reduced, the warning
- * colour from `clampWarnPercent` up, the heavy colour above `clampAlertPercent`.
+ * Colour of the status value: neutral while nothing is reduced, then warning,
+ * heavy and critical as the reduction grows past the configured thresholds.
  */
 function statusColor(modelId: string): string {
   const state = modelStates.get(modelId);
@@ -680,6 +688,7 @@ function statusColor(modelId: string): string {
 
   const deviation = ((from - to) / from) * 100;
   if (deviation < settings.clampWarnPercent) return settings.color;
+  if (deviation > settings.clampCriticalPercent) return settings.colorClampedCritical;
   if (deviation > settings.clampAlertPercent) return settings.colorClampedHeavy;
 
   return settings.colorClamped;
@@ -770,8 +779,8 @@ function statusLines(ctx: ExtensionContext): string[] {
           : "limit only"
         : "off"
     }`,
-    `Colours: idle ${settings.color}, reduced ${settings.colorClamped}, heavy ${settings.colorClampedHeavy}`,
-    `Thresholds: warning from ${settings.clampWarnPercent}%, heavy above ${settings.clampAlertPercent}%`,
+    `Colours: idle ${settings.color}, reduced ${settings.colorClamped}, heavy ${settings.colorClampedHeavy}, critical ${settings.colorClampedCritical}`,
+    `Thresholds: warning from ${settings.clampWarnPercent}%, heavy above ${settings.clampAlertPercent}%, critical above ${settings.clampCriticalPercent}%`,
   ];
 
   if (isOpenRouterModel(model)) {
