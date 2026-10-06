@@ -1,0 +1,54 @@
+{
+  "name": "@floez-werk/piagent-realtime-provider-maxtokens",
+  "version": "0.1.0",
+  "description": "Pi extension: clamps max_completion_tokens for OpenRouter requests to the smallest provider endpoint limit, so OpenRouter's length filter stops excluding providers.",
+  "keywords": [
+    "pi-package",
+    "pi-extension"
+  ],
+  "license": "MIT",
+  "author": "FloezWerk",
+  "files": [
+    "extensions",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FloezWerk/piagent-realtime-provider-maxtokens.git"
+  },
+  "homepage": "https://github.com/FloezWerk/piagent-realtime-provider-maxtokens#readme",
+  "bugs": {
+    "url": "https://github.com/FloezWerk/piagent-realtime-provider-maxtokens/issues"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ]
+  },
+  "scripts": {
+    "readme": "npx -y @floez-werk/pi-extension-release-tool@^0.1 sync-readme",
+    "release-notes": "npx -y @floez-werk/pi-extension-release-tool@^0.1 release-notes",
+    "check": "npm run check:readme && npm run check:bundle && npm run check:pack",
+    "check:readme": "npx -y @floez-werk/pi-extension-release-tool@^0.1 sync-readme --check",
+    "check:bundle": "npx -y esbuild@0.25.12 extensions/realtime-provider-maxtokens.ts --bundle --format=esm --platform=node --external:@earendil-works/* --outfile=/tmp/piagent-realtime-provider-maxtokens.mjs",
+    "check:pack": "npm pack --dry-run"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-ai": {
+      "optional": true
+    },
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    }
+  }
+}

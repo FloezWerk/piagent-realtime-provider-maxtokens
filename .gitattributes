@@ -1,0 +1,13 @@
+# Consistent line endings (GitHub renders/processes LF most reliably)
+* text=auto eol=lf
+
+# Do not normalize binaries
+*.png binary
+*.jpg binary
+*.gif binary
+*.woff binary
+*.woff2 binary
+
+# Linguist: count the extension code as TypeScript, ignore generated files
+*.ts text
+package-lock.json linguist-generated

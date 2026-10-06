@@ -1,0 +1,18 @@
+node_modules/
+package-lock.json
+*.log
+.DS_Store
+
+# Editor/OS
+*.swp
+.idea/
+.vscode/
+
+# Local/secret files (never commit, never mirror)
+.env
+.env.*
+*.local
+
+# Pi working data
+.spec-flow/
+.pi/

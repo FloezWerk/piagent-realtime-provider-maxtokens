@@ -1,0 +1,24 @@
+name: Release
+
+# Triggered by pushing a version tag (vX.Y.Z). Gitea mirrors the tag to GitHub,
+# where this workflow calls the shared release pipeline: guards, `npm run check`,
+# README release-notes sync, npm publish (with provenance), tarball and GitHub
+# release. Publishing happens here and only here; tags are never created here
+# (Gitea is the source of truth for refs and mirrors them to GitHub).
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+# Required by the called workflow: create the GitHub release and mint the OIDC
+# token for npm provenance. Secrets cannot be inherited here (that is only
+# allowed inside an organization), so NPM_TOKEN is mapped explicitly below.
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    uses: FloezWerk/pi-extension-release-tool/.github/workflows/reusable-release.yml@v0.1
+    secrets:
+      npm_token: ${{ secrets.NPM_TOKEN }}

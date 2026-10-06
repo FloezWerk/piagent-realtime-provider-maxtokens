@@ -1,0 +1,13 @@
+name: CI
+
+# Runs on every push to main and on pull requests. The checks live in the
+# shared reusable workflow of pi-extension-release-tool (pinned to a moving
+# major.minor tag), so this file stays a thin caller.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    uses: FloezWerk/pi-extension-release-tool/.github/workflows/reusable-ci.yml@v0.1
