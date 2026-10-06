@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-07
+
+### Changed
+
+- Release process only, no user-facing change: this version is byte-identical to
+  the manually published 0.1.0. It is the first release driven by a version tag
+  and exercises the shared pipeline (guards, `npm run check`, README sync, npm
+  publish with provenance, GitHub release with the package tarball).
+
 ## [0.1.0] - 2026-10-06
 
 ### Added
@@ -34,9 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Leaves everything else alone: no provider is registered, `models.json` is
   neither read nor written, and no provider is pinned.
 
-<!-- [Unreleased] compares against the last tagged version; switch this link to
-     compare/vX.Y.Z...HEAD once the first version is tagged. Versions link to
-     their GitHub release page (created by release.yml); 0.1.0 has no tag yet
-     (the first publish is manual), so it links to npm. -->
-[Unreleased]: https://github.com/FloezWerk/piagent-realtime-provider-maxtokens/commits/main
+<!-- [Unreleased] compares against the last tagged version. Versions link to
+     their GitHub release page (created by release.yml); 0.1.0 has no tag
+     (the first publish was manual), so it links to npm. -->
+[Unreleased]: https://github.com/FloezWerk/piagent-realtime-provider-maxtokens/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/FloezWerk/piagent-realtime-provider-maxtokens/releases/tag/v0.1.1
 [0.1.0]: https://www.npmjs.com/package/@floez-werk/piagent-realtime-provider-maxtokens/v/0.1.0
