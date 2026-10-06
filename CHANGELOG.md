@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The status line can show what the provider that served the call supports
+  itself, in parentheses behind the current value: `MT:131k↓(Dig944k)` (`Dig` is
+  the provider's first three letters, `944k` its own output limit). Two settings
+  control it: `statusProviderLimit` turns the parenthetical off,
+  `statusProviderLimitTag` hides the tag and leaves only `(944k)`. The provider is
+  read from the raw OpenRouter chunks, so it is known per response.
+- The status line marks a request that was actually reduced with an arrow:
+  `MT:131k↓`. A request is only reduced when the value Pi would send is above the
+  cap, and the arrow disappears again once a request passes through unchanged.
+- A per-model lower bound for the cap (`minByModel`): the limit that is sent never
+  drops below it, even when every endpoint publishes less.
+- An opt-in diagnostic log (`log`, off by default) written to
+  `provider-maxtokens.log`: whether a cache entry was used or a new lookup is
+  needed, when a cached limit expired, the endpoints response (status, duration,
+  endpoint count, cap and the limit of every provider), each request's decision
+  and the provider that served the response.
+- Commands `/provider-maxtokens min [<model-id> [<tokens|none>]]` and
+  `/provider-maxtokens log <on|off>`.
+
+### Changed
+
+- `/provider-maxtokens status` now reports the configured minimum, the cap in
+  use, the serving provider with its own limit, and the per-model reduction count.
+
 ## [0.1.1] - 2026-10-07
 
 ### Changed

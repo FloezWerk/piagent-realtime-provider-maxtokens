@@ -32,7 +32,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 /** Command name without the leading slash. */
@@ -46,6 +46,12 @@ const STATUS_KEY = "provider-maxtokens";
 
 /** Cache file name, resolved next to `settings.json` in the agent directory. */
 const CACHE_FILE_NAME = "provider-maxtokens-cache.json";
+
+/** Diagnostic log file name, written only while `log` is enabled. */
+const LOG_FILE_NAME = "provider-maxtokens.log";
+
+/** Length of the provider tag shown in the status line. */
+const PROVIDER_TAG_LENGTH = 3;
 
 /** Bumped when the on-disk cache shape changes; older files are discarded. */
 const CACHE_VERSION = 1;
@@ -80,12 +86,27 @@ interface ExtensionSettings {
   ttlMinutes: number;
   /** Limit used when no cached entry exists yet or a lookup fails. */
   fallbackCap: number;
+  /**
+   * Per-model lower bound for the limit that is sent, keyed by model id. The
+   * value never drops below this, even when every endpoint publishes less.
+   */
+  minByModel: Record<string, number>;
+  /** Append a diagnostic log next to the settings file. Off by default. */
+  log: boolean;
+  /** Show the serving provider's own output limit in the status line. */
+  statusProviderLimit: boolean;
+  /** Include the provider tag (first three letters) in that parenthetical. */
+  statusProviderLimitTag: boolean;
 }
 
 const DEFAULT_SETTINGS: ExtensionSettings = {
   enabled: true,
   ttlMinutes: 60,
   fallbackCap: 131072,
+  minByModel: {},
+  log: false,
+  statusProviderLimit: true,
+  statusProviderLimitTag: true,
 };
 
 interface CacheEntry {
@@ -95,6 +116,11 @@ interface CacheEntry {
   checkedAt: number;
   /** Number of endpoints the limit was derived from. */
   endpointCount: number;
+  /**
+   * Output limit per provider, keyed by lowercase provider name. Lets the status
+   * line show what the provider that served a request supports itself.
+   */
+  providers?: Record<string, number>;
 }
 
 interface CacheFile {
@@ -109,10 +135,26 @@ interface ClampRecord {
   at: number;
 }
 
-interface CapResolution {
+/** How the limit that is sent was derived. */
+interface CapState {
+  /** Limit used, never below the configured per-model minimum. */
   cap: number;
-  /** `cache` when a fresh entry was used, `fallback` otherwise. */
-  source: "cache" | "fallback";
+  /** Limit from the cache or the fallback, before the minimum is applied. */
+  baseCap: number;
+  /** A fresh cache entry exists. */
+  fresh: boolean;
+  /** The configured per-model minimum raised the cap. */
+  raisedByMinimum: boolean;
+}
+
+/** Per-model request bookkeeping for the status line. */
+interface ModelState {
+  /** The most recent request for this model was reduced. */
+  clamped: boolean;
+  /** Requests reduced since this session started. */
+  clamps: number;
+  /** The most recent reduction. */
+  lastClamp?: ClampRecord;
 }
 
 let settings: ExtensionSettings = { ...DEFAULT_SETTINGS };
@@ -122,8 +164,9 @@ let cacheWriteQueue: Promise<void> = Promise.resolve();
 const lookupsInFlight = new Set<string>();
 /** Latest event context; refreshed by every handler because a captured context can go stale. */
 let activeContext: ExtensionContext | undefined;
-let lastClamp: ClampRecord | undefined;
-let clampCount = 0;
+const modelStates = new Map<string, ModelState>();
+/** Provider that served the most recent response, per model id. */
+const servingProviders = new Map<string, string>();
 let statusText: string | undefined;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -138,10 +181,45 @@ function cachePath(): string {
   return join(getAgentDir(), CACHE_FILE_NAME);
 }
 
+function logPath(): string {
+  return join(getAgentDir(), LOG_FILE_NAME);
+}
+
+/**
+ * Appends one line to the diagnostic log. No-op while logging is disabled, and
+ * a failing write is swallowed: logging must never affect a request.
+ */
+function logEvent(event: string, fields: Record<string, unknown> = {}): void {
+  if (!settings.log) return;
+
+  const line = `${new Date().toISOString()} ${event} ${JSON.stringify(fields)}\n`;
+  void appendFile(logPath(), line, "utf8").catch(() => {
+    // A log that cannot be written is not worth failing a request over.
+  });
+}
+
 function normalizeInteger(value: unknown, fallback: number, minimum: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
   const rounded = Math.floor(value);
   return rounded >= minimum ? rounded : fallback;
+}
+
+/** Keeps only usable entries: a non-empty model id and a plausible token count. */
+function normalizeMinByModel(value: unknown): Record<string, number> {
+  if (!isRecord(value)) return {};
+
+  const result: Record<string, number> = {};
+  for (const [rawId, rawValue] of Object.entries(value)) {
+    const modelId = rawId.trim();
+    if (!modelId) continue;
+    if (typeof rawValue !== "number" || !Number.isFinite(rawValue)) continue;
+
+    const tokens = Math.floor(rawValue);
+    if (tokens < MIN_FALLBACK_CAP) continue;
+    result[modelId] = tokens;
+  }
+
+  return result;
 }
 
 function normalizeSettings(section: unknown): ExtensionSettings {
@@ -159,6 +237,16 @@ function normalizeSettings(section: unknown): ExtensionSettings {
       DEFAULT_SETTINGS.fallbackCap,
       MIN_FALLBACK_CAP,
     ),
+    minByModel: normalizeMinByModel(record.minByModel),
+    log: typeof record.log === "boolean" ? record.log : DEFAULT_SETTINGS.log,
+    statusProviderLimit:
+      typeof record.statusProviderLimit === "boolean"
+        ? record.statusProviderLimit
+        : DEFAULT_SETTINGS.statusProviderLimit,
+    statusProviderLimitTag:
+      typeof record.statusProviderLimitTag === "boolean"
+        ? record.statusProviderLimitTag
+        : DEFAULT_SETTINGS.statusProviderLimitTag,
   };
 }
 
@@ -209,6 +297,12 @@ async function loadCache(): Promise<void> {
     if (typeof cap !== "number" || !Number.isFinite(cap) || cap <= 0) continue;
     if (typeof checkedAt !== "number" || !Number.isFinite(checkedAt)) continue;
 
+    const providers = isRecord(value.providers) ? value.providers : undefined;
+    const limits: Record<string, number> = {};
+    for (const [name, limit] of Object.entries(providers ?? {})) {
+      if (typeof limit === "number" && Number.isFinite(limit) && limit > 0) limits[name] = limit;
+    }
+
     next.set(modelId, {
       cap,
       checkedAt,
@@ -216,6 +310,7 @@ async function loadCache(): Promise<void> {
         typeof value.endpointCount === "number" && Number.isFinite(value.endpointCount)
           ? value.endpointCount
           : 0,
+      ...(Object.keys(limits).length > 0 ? { providers: limits } : {}),
     });
   }
 
@@ -252,41 +347,84 @@ function endpointsUrl(modelId: string): string {
 }
 
 /** Smallest positive `max_completion_tokens` across an endpoints response. */
-function smallestOutputLimit(payload: unknown): { cap: number; endpointCount: number } | undefined {
+interface EndpointLimits {
+  /** Smallest limit across the endpoints: the cap that is sent. */
+  cap: number;
+  /** Number of endpoints that published a limit. */
+  endpointCount: number;
+  /** Highest limit per provider (lowercase name): what that provider supports. */
+  providers: Record<string, number>;
+}
+
+/** Reads the output limits out of an endpoints response. */
+function readEndpointLimits(payload: unknown): EndpointLimits | undefined {
   if (!isRecord(payload) || !isRecord(payload.data)) return undefined;
   const endpoints = payload.data.endpoints;
   if (!Array.isArray(endpoints)) return undefined;
 
   let cap: number | undefined;
   let endpointCount = 0;
+  const providers: Record<string, number> = {};
 
   for (const endpoint of endpoints) {
     if (!isRecord(endpoint)) continue;
     const value = endpoint.max_completion_tokens;
     if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) continue;
+
     endpointCount += 1;
     if (cap === undefined || value < cap) cap = value;
+
+    const name = typeof endpoint.provider_name === "string" ? endpoint.provider_name.trim().toLowerCase() : "";
+    if (!name) continue;
+    const known = providers[name];
+    if (known === undefined || value > known) providers[name] = value;
   }
 
-  return cap === undefined ? undefined : { cap, endpointCount };
+  return cap === undefined ? undefined : { cap, endpointCount, providers };
 }
 
 async function lookupCap(modelId: string): Promise<CacheEntry | undefined> {
+  const url = endpointsUrl(modelId);
+  const startedAt = Date.now();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), LOOKUP_TIMEOUT_MS);
 
+  logEvent("lookup.start", { modelId, url });
+
   try {
-    const response = await fetch(endpointsUrl(modelId), {
-      headers: { accept: "application/json" },
-      signal: controller.signal,
+    const response = await fetch(url, { headers: { accept: "application/json" }, signal: controller.signal });
+    if (!response.ok) {
+      logEvent("lookup.http-error", { modelId, status: response.status, durationMs: Date.now() - startedAt });
+      return undefined;
+    }
+
+    const limits = readEndpointLimits(await response.json());
+    if (!limits) {
+      logEvent("lookup.no-limits", { modelId, status: response.status, durationMs: Date.now() - startedAt });
+      return undefined;
+    }
+
+    logEvent("lookup.response", {
+      modelId,
+      status: response.status,
+      durationMs: Date.now() - startedAt,
+      endpointCount: limits.endpointCount,
+      cap: limits.cap,
+      providers: limits.providers,
     });
-    if (!response.ok) return undefined;
 
-    const limits = smallestOutputLimit(await response.json());
-    if (!limits) return undefined;
-
-    return { cap: limits.cap, checkedAt: Date.now(), endpointCount: limits.endpointCount };
-  } catch {
+    return {
+      cap: limits.cap,
+      checkedAt: Date.now(),
+      endpointCount: limits.endpointCount,
+      ...(Object.keys(limits.providers).length > 0 ? { providers: limits.providers } : {}),
+    };
+  } catch (error) {
+    logEvent("lookup.failed", {
+      modelId,
+      durationMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return undefined;
   } finally {
     clearTimeout(timer);
@@ -295,7 +433,11 @@ async function lookupCap(modelId: string): Promise<CacheEntry | undefined> {
 
 /** Refreshes one model's limit unless a lookup for it is already running. */
 async function refreshCap(modelId: string): Promise<CacheEntry | undefined> {
-  if (lookupsInFlight.has(modelId)) return undefined;
+  if (lookupsInFlight.has(modelId)) {
+    logEvent("lookup.skipped", { modelId, reason: "already-in-flight" });
+    return undefined;
+  }
+
   lookupsInFlight.add(modelId);
 
   try {
@@ -304,6 +446,7 @@ async function refreshCap(modelId: string): Promise<CacheEntry | undefined> {
 
     cache.set(modelId, entry);
     scheduleCacheWrite();
+    logEvent("cache.stored", { modelId, cap: entry.cap, endpointCount: entry.endpointCount });
     return entry;
   } finally {
     lookupsInFlight.delete(modelId);
@@ -330,14 +473,45 @@ async function refreshCaps(modelIds: readonly string[]): Promise<number> {
  * Resolves the limit to clamp to. Never blocks: a missing or stale entry falls
  * back to the configured default and triggers a background refresh.
  */
-function resolveCap(modelId: string): CapResolution {
+/** Derives the limit for a model without side effects, for display and clamping. */
+function peekCap(modelId: string): CapState {
   const entry = cache.get(modelId);
-  const now = Date.now();
+  const fresh = entry !== undefined && isFresh(entry, Date.now());
+  const baseCap = fresh ? entry.cap : settings.fallbackCap;
+  const minimum = settings.minByModel[modelId];
+  const raisedByMinimum = minimum !== undefined && minimum > baseCap;
 
-  if (entry && isFresh(entry, now)) return { cap: entry.cap, source: "cache" };
+  return { cap: raisedByMinimum ? minimum : baseCap, baseCap, fresh, raisedByMinimum };
+}
+
+/** Same as {@link peekCap}, but makes sure a stale entry is refreshed in the background. */
+function resolveCap(modelId: string): CapState {
+  const state = peekCap(modelId);
+  const entry = cache.get(modelId);
+
+  if (state.fresh) {
+    logEvent("cache.hit", {
+      modelId,
+      cap: state.cap,
+      ageMinutes: entry === undefined ? null : ageMinutes(entry.checkedAt),
+      ttlMinutes: settings.ttlMinutes,
+    });
+    return state;
+  }
+
+  if (entry === undefined) {
+    logEvent("cache.miss", { modelId, ttlMinutes: settings.ttlMinutes, fallbackCap: settings.fallbackCap });
+  } else {
+    logEvent("cache.expired", {
+      modelId,
+      cap: entry.cap,
+      ageMinutes: ageMinutes(entry.checkedAt),
+      ttlMinutes: settings.ttlMinutes,
+    });
+  }
 
   void refreshCap(modelId);
-  return { cap: settings.fallbackCap, source: "fallback" };
+  return state;
 }
 
 /** Field Pi uses for the output limit of this model. */
@@ -357,10 +531,48 @@ function formatTokens(value: number): string {
   return String(value);
 }
 
+/** Whole minutes since a timestamp, for the log. */
+function ageMinutes(checkedAt: number): number {
+  return Math.max(0, Math.round((Date.now() - checkedAt) / 60_000));
+}
+
 function formatAge(checkedAt: number, now: number): string {
   const minutes = Math.max(0, Math.round((now - checkedAt) / 60_000));
   if (minutes < 60) return `${minutes}m`;
   return `${Math.floor(minutes / 60)}h${minutes % 60 === 0 ? "" : `${minutes % 60}m`}`;
+}
+
+/**
+ * Three-letter provider tag, mirroring `piagent-realtime-provider-cost`: lower
+ * case, first letter capitalised, truncated. `DigitalOcean` -> `Dig`.
+ */
+function providerTag(name: string): string {
+  const lower = name.trim().toLowerCase();
+  if (!lower) return "";
+
+  return (lower.charAt(0).toUpperCase() + lower.slice(1)).slice(0, PROVIDER_TAG_LENGTH);
+}
+
+/** Output limit a provider published for a model, when it is in the cache. */
+function providerLimit(modelId: string, providerName: string): number | undefined {
+  const entry = cache.get(modelId);
+  if (!entry?.providers) return undefined;
+
+  return entry.providers[providerName.trim().toLowerCase()];
+}
+
+/** `(Dig131k)` style suffix for the status line; empty when it is hidden. */
+function providerSuffix(modelId: string): string {
+  if (!settings.statusProviderLimit) return "";
+
+  const name = servingProviders.get(modelId);
+  if (!name) return "";
+
+  const limit = providerLimit(modelId, name);
+  const tag = settings.statusProviderLimitTag ? providerTag(name) : "";
+  const text = `${tag}${limit === undefined ? "" : formatTokens(limit)}`;
+
+  return text ? `(${text})` : "";
 }
 
 function setStatus(ctx: ExtensionContext, text: string | undefined): void {
@@ -396,9 +608,10 @@ function updateStatus(): void {
     } else {
       const model = ctx.model;
       if (isOpenRouterModel(model)) {
-        const entry = cache.get(model.id);
-        const fresh = entry !== undefined && isFresh(entry, Date.now());
-        text = `MT:${formatTokens(fresh ? entry.cap : settings.fallbackCap)}${fresh ? "" : "*"}`;
+        const { cap, fresh } = peekCap(model.id);
+        // "*" marks the fallback cap, the arrow marks a request that was reduced.
+        const markers = `${fresh ? "" : "*"}${modelStates.get(model.id)?.clamped ? "\u2193" : ""}`;
+        text = `MT:${formatTokens(cap)}${markers}${providerSuffix(model.id)}`;
       }
     }
   } catch {
@@ -439,11 +652,22 @@ function statusLines(ctx: ExtensionContext): string[] {
     `TTL: ${settings.ttlMinutes} minute(s)`,
     `Fallback cap: ${settings.fallbackCap} (${formatTokens(settings.fallbackCap)})`,
     `Cache: ${cache.size} model(s), ${cachePath()}`,
+    `Log: ${settings.log ? `on -> ${logPath()}` : "off"}`,
+    `Provider limit in the status line: ${
+      settings.statusProviderLimit
+        ? settings.statusProviderLimitTag
+          ? "tag + limit"
+          : "limit only"
+        : "off"
+    }`,
   ];
 
   if (isOpenRouterModel(model)) {
     const entry = cache.get(model.id);
     const field = maxTokensField(model);
+    const state = peekCap(model.id);
+    const modelState = modelStates.get(model.id);
+
     lines.push("", `**Current model** \`${model.id}\``);
     lines.push(`Field: ${field}`);
     lines.push(`Model maxTokens: ${model.maxTokens}`);
@@ -456,26 +680,58 @@ function statusLines(ctx: ExtensionContext): string[] {
       lines.push(`Cached cap: none yet - using the fallback cap`);
     }
 
-    const effective = Math.min(model.maxTokens, entry && isFresh(entry, now) ? entry.cap : settings.fallbackCap);
+    const configuredMinimum = settings.minByModel[model.id];
+    lines.push(
+      state.raisedByMinimum
+        ? `Minimum: ${state.cap} (${formatTokens(state.cap)}) - raised the cap from ${state.baseCap}`
+        : configuredMinimum === undefined
+          ? `Minimum: none configured`
+          : `Minimum: ${configuredMinimum} - not binding, the cap is ${state.baseCap}`,
+    );
+    lines.push(`Cap used: ${state.cap} (${formatTokens(state.cap)})${state.fresh ? "" : " - fallback"}`);
+
+    const effective = Math.min(model.maxTokens, state.cap);
     lines.push(`Sent as: ${effective} (${formatTokens(effective)})`);
+    lines.push(
+      `Requests reduced: ${modelState?.clamps ?? 0}${modelState?.clamped ? " (the most recent one was reduced)" : ""}`,
+    );
+
+    const serving = servingProviders.get(model.id);
+    const servingLimit = serving === undefined ? undefined : providerLimit(model.id, serving);
+    lines.push(`Serving provider: ${serving ?? "not reported yet"}`);
+    lines.push(
+      `Provider limit: ${
+        serving === undefined
+          ? "-"
+          : servingLimit === undefined
+            ? "not cached"
+            : `${servingLimit} (${formatTokens(servingLimit)})`
+      }`,
+    );
   } else {
     lines.push("", "Current model is not an OpenRouter model - requests are not rewritten.");
   }
 
-  if (lastClamp) {
+  const states = [...modelStates.values()];
+  const last = states
+    .map((entry) => entry.lastClamp)
+    .filter((record): record is ClampRecord => record !== undefined)
+    .sort((a, b) => b.at - a.at)[0];
+
+  if (last) {
     lines.push(
       "",
-      `Last clamp: \`${lastClamp.modelId}\` ${lastClamp.from} -> ${lastClamp.to} (${formatAge(lastClamp.at, now)} ago)`,
+      `Last clamp: \`${last.modelId}\` ${last.from} -> ${last.to} (${formatAge(last.at, now)} ago)`,
     );
   }
-  lines.push(`Clamps this session: ${clampCount}`);
+  lines.push(`Clamps this session: ${states.reduce((sum, entry) => sum + entry.clamps, 0)}`);
 
   return lines;
 }
 
 async function handleCommand(args: string, ctx: ExtensionCommandContext): Promise<void> {
   rememberContext(ctx);
-  const [action, value] = args.trim().split(/\s+/, 2);
+  const [action, first, second] = args.trim().split(/\s+/);
   const notify = (message: string, type: "info" | "warning" | "error" = "info"): void => {
     if (ctx.hasUI) ctx.ui.notify(message, type);
   };
@@ -499,7 +755,7 @@ async function handleCommand(args: string, ctx: ExtensionCommandContext): Promis
     }
 
     case "ttl": {
-      const minutes = Number(value);
+      const minutes = Number(first);
       if (!Number.isFinite(minutes) || minutes < MIN_TTL_MINUTES) {
         notify(`${COMMAND_NAME}: usage: /${COMMAND_NAME} ttl <minutes>`, "warning");
         return;
@@ -513,7 +769,7 @@ async function handleCommand(args: string, ctx: ExtensionCommandContext): Promis
     }
 
     case "cap": {
-      const tokens = Number(value);
+      const tokens = Number(first);
       if (!Number.isFinite(tokens) || tokens < MIN_FALLBACK_CAP) {
         notify(`${COMMAND_NAME}: usage: /${COMMAND_NAME} cap <tokens>`, "warning");
         return;
@@ -524,6 +780,83 @@ async function handleCommand(args: string, ctx: ExtensionCommandContext): Promis
       await saveSettings({ fallbackCap });
       updateStatus();
       notify(`${COMMAND_NAME}: fallback cap is now ${fallbackCap}`, "info");
+      return;
+    }
+
+    case "min": {
+      const modelId = (first ?? "").trim();
+      const configured = settings.minByModel;
+
+      if (!modelId) {
+        const entries = Object.entries(configured).sort(([a], [b]) => a.localeCompare(b));
+        notify(
+          entries.length === 0
+            ? `${COMMAND_NAME}: no per-model minimum configured`
+            : [
+                `**Per-model minimum**`,
+                "",
+                ...entries.map(([id, value]) => `- \`${id}\`: ${value} (${formatTokens(value)})`),
+                "",
+                `Usage: /${COMMAND_NAME} min <model-id> <tokens|none>`,
+              ].join("\n"),
+          "info",
+        );
+        return;
+      }
+
+      const currentMinimum = configured[modelId];
+
+      if (second === undefined) {
+        notify(
+          currentMinimum === undefined
+            ? `${COMMAND_NAME}: no minimum configured for ${modelId}`
+            : `${COMMAND_NAME}: minimum for ${modelId} is ${currentMinimum} (${formatTokens(currentMinimum)})`,
+          currentMinimum === undefined ? "warning" : "info",
+        );
+        return;
+      }
+
+      const next = { ...configured };
+
+      if (second.toLowerCase() === "none") {
+        if (currentMinimum === undefined) {
+          notify(`${COMMAND_NAME}: no minimum configured for ${modelId}`, "warning");
+          return;
+        }
+
+        delete next[modelId];
+        settings = { ...settings, minByModel: next };
+        await saveSettings({ minByModel: next });
+        updateStatus();
+        notify(`${COMMAND_NAME}: minimum removed for ${modelId}`, "info");
+        return;
+      }
+
+      const tokens = Number(second);
+      if (!Number.isFinite(tokens) || tokens < MIN_FALLBACK_CAP) {
+        notify(`${COMMAND_NAME}: usage: /${COMMAND_NAME} min <model-id> <tokens|none>`, "warning");
+        return;
+      }
+
+      next[modelId] = Math.floor(tokens);
+      settings = { ...settings, minByModel: next };
+      await saveSettings({ minByModel: next });
+      updateStatus();
+      notify(`${COMMAND_NAME}: minimum for ${modelId} is now ${next[modelId]}`, "info");
+      return;
+    }
+
+    case "log": {
+      const mode = (first ?? "").trim().toLowerCase();
+      if (mode !== "on" && mode !== "off") {
+        notify(`${COMMAND_NAME}: usage: /${COMMAND_NAME} log <on|off>`, "warning");
+        return;
+      }
+
+      const log = mode === "on";
+      settings = { ...settings, log };
+      await saveSettings({ log });
+      notify(`${COMMAND_NAME}: logging ${log ? `enabled -> ${logPath()}` : "disabled"}`, "info");
       return;
     }
 
@@ -553,7 +886,7 @@ async function handleCommand(args: string, ctx: ExtensionCommandContext): Promis
       notify(
         [
           `${COMMAND_NAME}: unknown action "${action}"`,
-          `usage: /${COMMAND_NAME} [status|on|off|toggle|refresh|clear|ttl <minutes>|cap <tokens>]`,
+          `usage: /${COMMAND_NAME} [status|on|off|toggle|refresh|clear|ttl <minutes>|cap <tokens>|min <model-id> <tokens|none>|log <on|off>]`,
         ].join("\n"),
         "warning",
       );
@@ -577,6 +910,27 @@ export default async function realtimeProviderMaxtokens(pi: ExtensionAPI): Promi
     if (isOpenRouterModel(ctx.model)) void refreshCap(ctx.model.id).then(() => updateStatus());
   });
 
+  // OpenRouter reports the provider that served the call on every raw chunk; Pi
+  // drops it before the message is finalized, so it is captured here.
+  pi.on("provider_stream_event", (event, ctx) => {
+    rememberContext(ctx);
+
+    if (event.provider !== OPENROUTER_PROVIDER) return;
+    if (!isRecord(event.data)) return;
+
+    const name = typeof event.data.provider === "string" ? event.data.provider.trim() : "";
+    if (!name) return;
+    if (servingProviders.get(event.model) === name) return;
+
+    servingProviders.set(event.model, name);
+    logEvent("response.provider", {
+      modelId: event.model,
+      provider: name,
+      providerLimit: providerLimit(event.model, name) ?? null,
+    });
+    updateStatus();
+  });
+
   pi.on("before_provider_request", (event: BeforeProviderRequestEvent, ctx) => {
     rememberContext(ctx);
 
@@ -593,10 +947,21 @@ export default async function realtimeProviderMaxtokens(pi: ExtensionAPI): Promi
     if (typeof current !== "number" || !Number.isFinite(current) || current <= 0) return undefined;
 
     const { cap } = resolveCap(model.id);
-    if (current <= cap) return undefined;
+    const state = modelStates.get(model.id) ?? { clamped: false, clamps: 0 };
 
-    lastClamp = { modelId: model.id, from: current, to: cap, at: Date.now() };
-    clampCount += 1;
+    if (current <= cap) {
+      state.clamped = false;
+      modelStates.set(model.id, state);
+      logEvent("request.decision", { modelId: model.id, field, from: current, cap, reduced: false });
+      updateStatus();
+      return undefined;
+    }
+
+    state.clamped = true;
+    state.clamps += 1;
+    state.lastClamp = { modelId: model.id, from: current, to: cap, at: Date.now() };
+    modelStates.set(model.id, state);
+    logEvent("request.decision", { modelId: model.id, field, from: current, cap, reduced: true });
     updateStatus();
 
     return { ...payload, [field]: cap };

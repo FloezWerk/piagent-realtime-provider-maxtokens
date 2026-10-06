@@ -46,8 +46,38 @@ Nothing else changes: the request keeps its `provider` routing object, other
 providers are untouched, and a failed or missing lookup falls back to the
 configured cap instead of blocking the request.
 
-The status bar shows `MT:<limit>` for the selected OpenRouter model, `MT:<limit>*`
-while the fallback cap is in use, and `MT:off` when the extension is disabled.
+### Status line
+
+| Text | Meaning |
+| --- | --- |
+| `MT:131k` | Limit that will be sent: the smallest output limit across the model's endpoints |
+| `MT:131k*` | No fresh cache entry - the fallback cap is in use while a lookup runs |
+| `MT:131k↓` | The most recent request for this model was actually reduced |
+| `MT:131k↓(Dig944k)` | Provider that served the last response (`Dig`) and its own limit (`944k`) |
+| `MT:off` | The extension is disabled |
+
+The parenthetical is controlled by `statusProviderLimit` (on/off) and
+`statusProviderLimitTag` (show or hide the three-letter tag). It stays empty
+until a response reported the serving provider.
+
+### Diagnostic log
+
+With `log: true` the extension appends one line per event to
+`~/.pi/agent/provider-maxtokens.log`:
+
+```
+2026-10-06T23:36:08.657Z lookup.start      {"modelId":"...","url":"https://openrouter.ai/api/v1/models/.../endpoints"}
+2026-10-06T23:36:08.676Z cache.expired     {"modelId":"...","cap":131072,"ageMinutes":120,"ttlMinutes":60}
+2026-10-06T23:36:08.676Z request.decision  {"modelId":"...","field":"max_completion_tokens","from":943718,"cap":131072,"reduced":true}
+2026-10-06T23:36:08.690Z response.provider {"modelId":"...","provider":"DigitalOcean","providerLimit":943718}
+2026-10-06T23:36:08.738Z lookup.response   {"modelId":"...","status":200,"durationMs":81,"endpointCount":30,"cap":131072,"providers":{"digitalocean":943718,...}}
+2026-10-06T23:36:08.738Z cache.stored      {"modelId":"...","cap":131072,"endpointCount":30}
+```
+
+Events: `cache.hit`, `cache.miss`, `cache.expired`, `lookup.start`,
+`lookup.skipped`, `lookup.response`, `lookup.http-error`, `lookup.no-limits`,
+`lookup.failed`, `cache.stored`, `request.decision`, `response.provider`.
+Logging never blocks a request, and a write that fails is ignored.
 
 ## Installation
 
@@ -72,7 +102,7 @@ automatically (keyword `pi-package`).
 
 | Command | Effect |
 | --- | --- |
-| `/provider-maxtokens` or `/provider-maxtokens status` | State, TTL, fallback cap, cache size, the selected model's cached limit, the value that will be sent, the last clamp and the clamp count of this session |
+| `/provider-maxtokens` or `/provider-maxtokens status` | State, TTL, fallback cap, log state, cache size, the selected model's cached limit, the cap in use, the value that will be sent, the serving provider with its own limit, the last clamp and the reduction count of this session |
 | `/provider-maxtokens on` | Rewrite outgoing payloads (persisted) |
 | `/provider-maxtokens off` | Leave payloads untouched (persisted) |
 | `/provider-maxtokens toggle` | Toggle (persisted) |
@@ -80,6 +110,11 @@ automatically (keyword `pi-package`).
 | `/provider-maxtokens clear` | Drop the cache; requests use the fallback cap until the next lookup |
 | `/provider-maxtokens ttl <minutes>` | Cache TTL in minutes (persisted, default 60) |
 | `/provider-maxtokens cap <tokens>` | Fallback cap (persisted, default 131072) |
+| `/provider-maxtokens min` | List the configured per-model minimums |
+| `/provider-maxtokens min <model-id>` | Show the minimum of one model |
+| `/provider-maxtokens min <model-id> <tokens>` | Never send less than this for that model (persisted) |
+| `/provider-maxtokens min <model-id> none` | Remove the minimum (persisted) |
+| `/provider-maxtokens log on` / `off` | Write the diagnostic log (persisted, default off) |
 
 After changes in a running session: `/reload`.
 
@@ -93,9 +128,14 @@ Settings live under the root key `provider-maxtokens` in Pi's shared
 | `enabled` | `true` | Rewrite the outgoing output limit |
 | `ttlMinutes` | `60` | Age after which a cached limit is refreshed |
 | `fallbackCap` | `131072` | Limit used when no fresh entry exists or a lookup fails |
+| `minByModel` | `{}` | Per-model lower bound for the limit that is sent, keyed by model id |
+| `log` | `false` | Append the diagnostic log |
+| `statusProviderLimit` | `true` | Show the serving provider's own limit in the status line |
+| `statusProviderLimitTag` | `true` | Include the three-letter provider tag in that parenthetical |
 
-The per-model cache is stored in `~/.pi/agent/provider-maxtokens-cache.json`.
-Only the extension's own keys are written; the rest of the file is preserved.
+The per-model cache is stored in `~/.pi/agent/provider-maxtokens-cache.json`, the
+diagnostic log in `~/.pi/agent/provider-maxtokens.log`. Only the extension's own
+keys are written; the rest of `settings.json` is preserved.
 
 ## Dependencies
 
