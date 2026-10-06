@@ -52,13 +52,29 @@ configured cap instead of blocking the request.
 | --- | --- |
 | `MT:131k` | Limit that will be sent: the smallest output limit across the model's endpoints |
 | `MT:131k*` | No fresh cache entry - the fallback cap is in use while a lookup runs |
-| `MT:131k↓` | The most recent request for this model was actually reduced |
-| `MT:131k↓(Dig944k)` | Provider that served the last response (`Dig`) and its own limit (`944k`) |
+| `MT:131k ( Dig 944k)` | Provider that served the last response (`Dig`) and its own limit (`944k`) |
 | `MT:off` | The extension is disabled |
+
+The value is colour-coded by how much the request was reduced:
+
+| Band | Colour setting | Default |
+| --- | --- | --- |
+| Nothing reduced, or below `clampWarnPercent` | `color` | `white` |
+| Reduced by `clampWarnPercent` up to `clampAlertPercent` | `colorClamped` | `136` (dark yellow) |
+| Reduced by more than `clampAlertPercent` | `colorClampedHeavy` | `orange` |
+
+The deviation is `(value Pi would send - value sent) / value Pi would send`, in
+percent. Colours accept palette names (`white`, `yellow`, `orange`, `red`,
+`green`, `cyan`, `magenta`, `blue`, `gray`, `none`), `#rgb` / `#rrggbb`, a
+256-colour number, and `bold:` / `reverse:` prefixes.
 
 The parenthetical is controlled by `statusProviderLimit` (on/off) and
 `statusProviderLimitTag` (show or hide the three-letter tag). It stays empty
 until a response reported the serving provider.
+
+> Inside `pi-powerline-footer` the colour survives only in a custom item with
+> `"selfColorize": true`; the aggregate `extension_statuses` segment applies its
+> own colour and drops these escape codes.
 
 ### Diagnostic log
 
@@ -132,6 +148,11 @@ Settings live under the root key `provider-maxtokens` in Pi's shared
 | `log` | `false` | Append the diagnostic log |
 | `statusProviderLimit` | `true` | Show the serving provider's own limit in the status line |
 | `statusProviderLimitTag` | `true` | Include the three-letter provider tag in that parenthetical |
+| `color` | `white` | Colour while nothing is reduced |
+| `colorClamped` | `136` | Colour while the reduction is at or below `clampAlertPercent` |
+| `colorClampedHeavy` | `orange` | Colour while the reduction is above `clampAlertPercent` |
+| `clampWarnPercent` | `1` | Reduction in percent from which the warning colour applies |
+| `clampAlertPercent` | `10` | Reduction in percent above which the heavy colour applies |
 
 The per-model cache is stored in `~/.pi/agent/provider-maxtokens-cache.json`, the
 diagnostic log in `~/.pi/agent/provider-maxtokens.log`. Only the extension's own

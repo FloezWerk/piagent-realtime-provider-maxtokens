@@ -15,9 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   control it: `statusProviderLimit` turns the parenthetical off,
   `statusProviderLimitTag` hides the tag and leaves only `(944k)`. The provider is
   read from the raw OpenRouter chunks, so it is known per response.
-- The status line marks a request that was actually reduced with an arrow:
-  `MT:131k↓`. A request is only reduced when the value Pi would send is above the
-  cap, and the arrow disappears again once a request passes through unchanged.
+- The status value is colour-coded instead of marked with an arrow: neutral
+  (`color`) while nothing is reduced, the warning colour (`colorClamped`, a dark
+  yellow by default) from `clampWarnPercent` (default 1) percent of deviation, and
+  the heavy colour (`colorClampedHeavy`, orange by default) above
+  `clampAlertPercent` (default 10) percent. The deviation is how much the request
+  value was reduced. Colours accept palette names, `#rgb`/`#rrggbb`, a 256-colour
+  number and `bold:`/`reverse:` prefixes.
 - A per-model lower bound for the cap (`minByModel`): the limit that is sent never
   drops below it, even when every endpoint publishes less.
 - An opt-in diagnostic log (`log`, off by default) written to
@@ -27,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the provider that served the response.
 - Commands `/provider-maxtokens min [<model-id> [<tokens|none>]]` and
   `/provider-maxtokens log <on|off>`.
+- The provider parenthetical gained spaces: after the status value, after the
+  opening parenthesis and between the provider tag and its limit.
 
 ### Changed
 

@@ -53,6 +53,21 @@ const LOG_FILE_NAME = "provider-maxtokens.log";
 /** Length of the provider tag shown in the status line. */
 const PROVIDER_TAG_LENGTH = 3;
 
+/** SGR parameter list per palette name; `orange` has no ANSI palette entry. */
+const COLOR_NAMES: Record<string, string> = {
+  white: "97",
+  yellow: "93",
+  orange: "38;5;208",
+  red: "91",
+  green: "92",
+  cyan: "96",
+  magenta: "95",
+  blue: "94",
+  gray: "90",
+};
+
+const COLOR_RESET = "\u001b[0m";
+
 /** Bumped when the on-disk cache shape changes; older files are discarded. */
 const CACHE_VERSION = 1;
 
@@ -97,6 +112,16 @@ interface ExtensionSettings {
   statusProviderLimit: boolean;
   /** Include the provider tag (first three letters) in that parenthetical. */
   statusProviderLimitTag: boolean;
+  /** Colour of the status value while nothing is reduced. */
+  color: string;
+  /** Colour while a request is reduced by at least `clampWarnPercent`. */
+  colorClamped: string;
+  /** Colour while a request is reduced by more than `clampAlertPercent`. */
+  colorClampedHeavy: string;
+  /** Deviation in percent below which a reduction counts as no reduction. */
+  clampWarnPercent: number;
+  /** Deviation in percent above which the heavy colour is used. */
+  clampAlertPercent: number;
 }
 
 const DEFAULT_SETTINGS: ExtensionSettings = {
@@ -107,6 +132,12 @@ const DEFAULT_SETTINGS: ExtensionSettings = {
   log: false,
   statusProviderLimit: true,
   statusProviderLimitTag: true,
+  color: "white",
+  // 256-colour 136 is a dark yellow; "yellow" (93) would be too close to orange.
+  colorClamped: "136",
+  colorClampedHeavy: "orange",
+  clampWarnPercent: 1,
+  clampAlertPercent: 10,
 };
 
 interface CacheEntry {
@@ -169,6 +200,56 @@ const modelStates = new Map<string, ModelState>();
 const servingProviders = new Map<string, string>();
 let statusText: string | undefined;
 
+function hexToSgr(hex: string): string | undefined {
+  const value = hex.length === 3 ? hex.split("").map((c) => c + c).join("") : hex;
+  if (!/^[0-9a-f]{6}$/i.test(value)) return undefined;
+
+  const [r, g, b] = [0, 2, 4].map((index) => Number.parseInt(value.slice(index, index + 2), 16));
+  return `38;2;${r};${g};${b}`;
+}
+
+/**
+ * Turns a colour spec into an SGR parameter list, or undefined for `none` and
+ * invalid specs. Mirrors piagent-realtime-provider-cost: palette names, `#rgb` /
+ * `#rrggbb`, a 256-colour number, and `bold:` / `reverse:` prefixes.
+ */
+function resolveColor(spec: string): string | undefined {
+  let rest = spec.trim().toLowerCase();
+  if (!rest || rest === "none") return undefined;
+
+  const attributes: string[] = [];
+  for (;;) {
+    const match = /^(bold|reverse):(.*)$/.exec(rest);
+    if (!match) break;
+    attributes.push(match[1] === "bold" ? "1" : "7");
+    rest = match[2].trim();
+  }
+
+  const color = rest.startsWith("#")
+    ? hexToSgr(rest.slice(1))
+    : /^\d{1,3}$/.test(rest) && Number(rest) <= 255
+      ? `38;5;${Number(rest)}`
+      : COLOR_NAMES[rest];
+
+  return color === undefined ? undefined : [...attributes, color].join(";");
+}
+
+/** Accepts a colour spec that {@link resolveColor} understands, including `none`. */
+function normalizeColorSpec(value: unknown, fallback: string): string {
+  if (typeof value !== "string") return fallback;
+
+  const spec = value.trim();
+  if (!spec) return fallback;
+
+  return spec.toLowerCase() === "none" || resolveColor(spec) !== undefined ? spec : fallback;
+}
+
+/** Wraps text in a colour spec; unchanged for `none` and invalid specs. */
+function colorize(spec: string, text: string): string {
+  const sgr = resolveColor(spec);
+  return sgr === undefined ? text : `\u001b[${sgr}m${text}${COLOR_RESET}`;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -202,6 +283,12 @@ function normalizeInteger(value: unknown, fallback: number, minimum: number): nu
   if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
   const rounded = Math.floor(value);
   return rounded >= minimum ? rounded : fallback;
+}
+
+/** Percentage between 0 and 100; anything else falls back to the default. */
+function normalizePercent(value: unknown, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return value >= 0 && value <= 100 ? value : fallback;
 }
 
 /** Keeps only usable entries: a non-empty model id and a plausible token count. */
@@ -247,6 +334,11 @@ function normalizeSettings(section: unknown): ExtensionSettings {
       typeof record.statusProviderLimitTag === "boolean"
         ? record.statusProviderLimitTag
         : DEFAULT_SETTINGS.statusProviderLimitTag,
+    color: normalizeColorSpec(record.color, DEFAULT_SETTINGS.color),
+    colorClamped: normalizeColorSpec(record.colorClamped, DEFAULT_SETTINGS.colorClamped),
+    colorClampedHeavy: normalizeColorSpec(record.colorClampedHeavy, DEFAULT_SETTINGS.colorClampedHeavy),
+    clampWarnPercent: normalizePercent(record.clampWarnPercent, DEFAULT_SETTINGS.clampWarnPercent),
+    clampAlertPercent: normalizePercent(record.clampAlertPercent, DEFAULT_SETTINGS.clampAlertPercent),
   };
 }
 
@@ -561,7 +653,7 @@ function providerLimit(modelId: string, providerName: string): number | undefine
   return entry.providers[providerName.trim().toLowerCase()];
 }
 
-/** `(Dig131k)` style suffix for the status line; empty when it is hidden. */
+/** ` ( Dig 944k)` style suffix for the status line; empty when it is hidden. */
 function providerSuffix(modelId: string): string {
   if (!settings.statusProviderLimit) return "";
 
@@ -570,9 +662,27 @@ function providerSuffix(modelId: string): string {
 
   const limit = providerLimit(modelId, name);
   const tag = settings.statusProviderLimitTag ? providerTag(name) : "";
-  const text = `${tag}${limit === undefined ? "" : formatTokens(limit)}`;
+  const parts = [tag, limit === undefined ? "" : formatTokens(limit)].filter(Boolean).join(" ");
 
-  return text ? `(${text})` : "";
+  return parts ? ` ( ${parts})` : "";
+}
+
+/**
+ * Colour of the status value: neutral while nothing is reduced, the warning
+ * colour from `clampWarnPercent` up, the heavy colour above `clampAlertPercent`.
+ */
+function statusColor(modelId: string): string {
+  const state = modelStates.get(modelId);
+  if (!state?.clamped || state.lastClamp === undefined) return settings.color;
+
+  const { from, to } = state.lastClamp;
+  if (from <= 0) return settings.colorClamped;
+
+  const deviation = ((from - to) / from) * 100;
+  if (deviation < settings.clampWarnPercent) return settings.color;
+  if (deviation > settings.clampAlertPercent) return settings.colorClampedHeavy;
+
+  return settings.colorClamped;
 }
 
 function setStatus(ctx: ExtensionContext, text: string | undefined): void {
@@ -609,9 +719,9 @@ function updateStatus(): void {
       const model = ctx.model;
       if (isOpenRouterModel(model)) {
         const { cap, fresh } = peekCap(model.id);
-        // "*" marks the fallback cap, the arrow marks a request that was reduced.
-        const markers = `${fresh ? "" : "*"}${modelStates.get(model.id)?.clamped ? "\u2193" : ""}`;
-        text = `MT:${formatTokens(cap)}${markers}${providerSuffix(model.id)}`;
+        // "*" marks the fallback cap; the colour marks a reduced request.
+        const value = `${formatTokens(cap)}${fresh ? "" : "*"}`;
+        text = `MT:${colorize(statusColor(model.id), value)}${providerSuffix(model.id)}`;
       }
     }
   } catch {
@@ -660,6 +770,8 @@ function statusLines(ctx: ExtensionContext): string[] {
           : "limit only"
         : "off"
     }`,
+    `Colours: idle ${settings.color}, reduced ${settings.colorClamped}, heavy ${settings.colorClampedHeavy}`,
+    `Thresholds: warning from ${settings.clampWarnPercent}%, heavy above ${settings.clampAlertPercent}%`,
   ];
 
   if (isOpenRouterModel(model)) {
