@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   yellow by default) from `clampWarnPercent` (default 1) percent of deviation, and
   the heavy colour (`colorClampedHeavy`, orange by default) above
   `clampAlertPercent` (default 10) percent, and the critical colour
-  (`colorClampedCritical`, `#ff5555` by default) above `clampCriticalPercent`
+  (`colorClampedCritical`, `#ff8080` by default) above `clampCriticalPercent`
   (default 50) percent. The deviation is how much the request value was reduced.
   Colours accept palette names, `#rgb`/`#rrggbb`, a 256-colour number and
   `bold:`/`reverse:` prefixes.

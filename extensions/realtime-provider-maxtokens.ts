@@ -140,8 +140,8 @@ const DEFAULT_SETTINGS: ExtensionSettings = {
   // 256-colour 136 is a dark yellow; "yellow" (93) would be too close to orange.
   colorClamped: "136",
   colorClampedHeavy: "orange",
-  // Truecolor: ANSI bright red (91) still reads dark on a dark terminal.
-  colorClampedCritical: "#ff5555",
+  // Truecolor: ANSI bright red (91) and #ff5555 still read dark on black.
+  colorClampedCritical: "#ff8080",
   clampWarnPercent: 1,
   clampAlertPercent: 10,
   clampCriticalPercent: 50,
