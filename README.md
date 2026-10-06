@@ -52,7 +52,7 @@ configured cap instead of blocking the request.
 | --- | --- |
 | `MT:131k` | Limit that will be sent: the smallest output limit across the model's endpoints |
 | `MT:131k*` | No fresh cache entry - the fallback cap is in use while a lookup runs |
-| `MT:131k ( Dig 944k)` | Provider that served the last response (`Dig`) and its own limit (`944k`) |
+| `MT:131k (Dig 944k)` | Provider that served the last response (`Dig`) and its own limit (`944k`) |
 | `MT:off` | The extension is disabled |
 
 The value is colour-coded by how much the request was reduced:
@@ -73,9 +73,23 @@ The parenthetical is controlled by `statusProviderLimit` (on/off) and
 `statusProviderLimitTag` (show or hide the three-letter tag). It stays empty
 until a response reported the serving provider.
 
-> Inside `pi-powerline-footer` the colour survives only in a custom item with
-> `"selfColorize": true`; the aggregate `extension_statuses` segment applies its
-> own colour and drops these escape codes.
+### Showing the colour in pi-powerline-footer
+
+The aggregate `extension_statuses` segment applies its own colour and drops these
+escape codes, so the status needs its own item with `selfColorize: true`:
+
+```json
+"powerline": {
+  "customItems": [
+    { "id": "maxtokens", "statusKey": "provider-maxtokens", "position": "right",
+      "hideWhenMissing": true, "excludeFromExtensionStatuses": true, "selfColorize": true }
+  ]
+}
+```
+
+`excludeFromExtensionStatuses` keeps the status out of the aggregate segment, so
+it is rendered once, with its own colour. Without Powerline the status is rendered
+by Pi itself and the colour always applies.
 
 ### Diagnostic log
 

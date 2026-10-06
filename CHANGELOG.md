@@ -33,8 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the provider that served the response.
 - Commands `/provider-maxtokens min [<model-id> [<tokens|none>]]` and
   `/provider-maxtokens log <on|off>`.
-- The provider parenthetical gained spaces: after the status value, after the
-  opening parenthesis and between the provider tag and its limit.
+- The provider parenthetical gained spaces: after the status value and between
+  the provider tag and its limit (`MT:131k (Dig 944k)`).
 
 ### Changed
 

@@ -661,7 +661,7 @@ function providerLimit(modelId: string, providerName: string): number | undefine
   return entry.providers[providerName.trim().toLowerCase()];
 }
 
-/** ` ( Dig 944k)` style suffix for the status line; empty when it is hidden. */
+/** ` (Dig 944k)` style suffix for the status line; empty when it is hidden. */
 function providerSuffix(modelId: string): string {
   if (!settings.statusProviderLimit) return "";
 
@@ -672,7 +672,7 @@ function providerSuffix(modelId: string): string {
   const tag = settings.statusProviderLimitTag ? providerTag(name) : "";
   const parts = [tag, limit === undefined ? "" : formatTokens(limit)].filter(Boolean).join(" ");
 
-  return parts ? ` ( ${parts})` : "";
+  return parts ? ` (${parts})` : "";
 }
 
 /**
