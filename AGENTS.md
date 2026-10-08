@@ -26,6 +26,7 @@ string, keep it English. CI fails on umlauts anywhere in the repo.
 - Every **user-facing** change/feature gets a bullet under `## [Unreleased]` in
   `CHANGELOG.md`, in the same commit that introduces it
   (categories: `Added`, `Changed`, `Fixed`, ...).
+- Entries are compact and not too technical: at most two sentences.
 - Internal refactors, CI/tooling tweaks and docs-only fixes: no changelog entry.
 - `README.md` shows the release notes of the current version in the marked
   block: generated from `CHANGELOG.md` via `npm run readme` (Gitea, the GitHub
