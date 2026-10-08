@@ -30,7 +30,8 @@ string, keep it English. CI fails on umlauts anywhere in the repo.
 - `README.md` shows the release notes of the current version in the marked
   block: generated from `CHANGELOG.md` via `npm run readme` (Gitea, the GitHub
   mirror and npm render the README). Never edit that block by hand.
-- The release workflow rejects a tag without a matching `## [X.Y.Z]` entry.
+- The release workflow rejects a tag without a matching `X.Y.Z` heading (the
+  version links its GitHub release).
 
 ## Checks
 
@@ -42,7 +43,8 @@ string, keep it English. CI fails on umlauts anywhere in the repo.
 
 ## Releasing
 
-1. `CHANGELOG.md`: move `[Unreleased]` bullets into `## [X.Y.Z] - YYYY-MM-DD`
+1. `CHANGELOG.md`: move `[Unreleased]` bullets into a heading
+   `X.Y.Z - YYYY-MM-DD`, with the version as the link to its GitHub release
 2. Bump `"version"` in `package.json` to `X.Y.Z`, run `npm run readme`, commit
    both (the README block then already shows the notes on Gitea)
 3. `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`

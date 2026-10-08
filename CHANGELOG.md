@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.2] - 2026-10-07
+## [0.1.2](https://github.com/FloezWerk/piagent-realtime-provider-maxtokens/releases/tag/v0.1.2) - 2026-10-07
 
 ### Added
 
@@ -43,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/provider-maxtokens status` now reports the configured minimum, the cap in
   use, the serving provider with its own limit, and the per-model reduction count.
 
-## [0.1.1] - 2026-10-07
+## [0.1.1](https://github.com/FloezWerk/piagent-realtime-provider-maxtokens/releases/tag/v0.1.1) - 2026-10-07
 
 ### Changed
 
@@ -52,7 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and exercises the shared pipeline (guards, `npm run check`, README sync, npm
   publish with provenance, GitHub release with the package tarball).
 
-## [0.1.0] - 2026-10-06
+## [0.1.0](https://www.npmjs.com/package/@floez-werk/piagent-realtime-provider-maxtokens/v/0.1.0) - 2026-10-06
 
 ### Added
 
@@ -79,10 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Leaves everything else alone: no provider is registered, `models.json` is
   neither read nor written, and no provider is pinned.
 
-<!-- [Unreleased] compares against the last tagged version. Versions link to
-     their GitHub release page (created by release.yml); 0.1.0 has no tag
+<!-- [Unreleased] compares against the last tagged version. Every version heading
+     links to its GitHub release page (created by release.yml); 0.1.0 has no tag
      (the first publish was manual), so it links to npm. -->
 [Unreleased]: https://github.com/FloezWerk/piagent-realtime-provider-maxtokens/compare/v0.1.2...HEAD
-[0.1.2]: https://github.com/FloezWerk/piagent-realtime-provider-maxtokens/releases/tag/v0.1.2
-[0.1.1]: https://github.com/FloezWerk/piagent-realtime-provider-maxtokens/releases/tag/v0.1.1
-[0.1.0]: https://www.npmjs.com/package/@floez-werk/piagent-realtime-provider-maxtokens/v/0.1.0
