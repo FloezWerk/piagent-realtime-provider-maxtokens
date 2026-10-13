@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4](https://github.com/FloezWerk/piagent-realtime-provider-maxtokens/releases/tag/v0.1.4) - 2026-10-13
+
+### Fixed
+
+- The status line now shows the serving provider for Claude models routed through OpenRouter (Anthropic message API).
+
 ## [0.1.3](https://github.com/FloezWerk/piagent-realtime-provider-maxtokens/releases/tag/v0.1.3) - 2026-10-13
 
 ### Changed

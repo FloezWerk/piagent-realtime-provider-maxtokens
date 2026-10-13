@@ -1040,7 +1040,13 @@ export default async function realtimeProviderMaxtokens(pi: ExtensionAPI): Promi
     if (event.provider !== OPENROUTER_PROVIDER) return;
     if (!isRecord(event.data)) return;
 
-    const name = typeof event.data.provider === "string" ? event.data.provider.trim() : "";
+    // Anthropic-style routes (anthropic-messages) put the provider on the nested
+    // `message` of the `message_start` event instead of the top level.
+    const message = isRecord(event.data.message) ? event.data.message : undefined;
+    const raw = typeof event.data.provider === "string"
+      ? event.data.provider
+      : typeof message?.provider === "string" ? message.provider : "";
+    const name = raw.trim();
     if (!name) return;
     if (servingProviders.get(event.model) === name) return;
 
